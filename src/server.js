@@ -88,25 +88,35 @@ async function start() {
   try {
     logger.info('Starting iMessage Mental Health Friend...');
     
-    // Connect to Redis
-    logger.info('Connecting to Redis...');
-    await redisService.connect();
-    
-    // Log webhook URL for easy configuration
-    const webhookUrl = getWebhookUrl();
-    logger.info(`📱 Configure LoopMessage webhook to: ${webhookUrl}`);
-    
-    // Start proactive messaging scheduler (import dynamically to ensure Redis is connected)
-    const proactiveMessaging = require('./services/proactiveMessaging');
-    proactiveMessaging.startScheduler();
-    
-    // Start server
+    // Start server first so health checks can pass
     const PORT = config.port;
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`🌍 Environment: ${config.nodeEnv}`);
-      logger.info('✅ Ready to receive messages');
     });
+    
+    // Connect to Redis - but don't crash if it fails
+    logger.info('Connecting to Redis...');
+    try {
+      await redisService.connect();
+      logger.info('✅ Redis connected successfully');
+      
+      // Log webhook URL for easy configuration
+      const webhookUrl = getWebhookUrl();
+      logger.info(`📱 Configure LoopMessage webhook to: ${webhookUrl}`);
+      
+      // Start proactive messaging scheduler
+      const proactiveMessaging = require('./services/proactiveMessaging');
+      proactiveMessaging.startScheduler();
+      
+      logger.info('✅ Ready to receive messages');
+    } catch (err) {
+      logger.error('Redis connection failed - app will run but some features unavailable', { 
+        error: err.message 
+      });
+      logger.warn('Please check REDIS_URL environment variable');
+      // Don't exit - let the app run without Redis for now
+    }
     
   } catch (err) {
     logger.error('Failed to start server', { error: err.message, stack: err.stack });

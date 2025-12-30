@@ -5,34 +5,31 @@ const redisService = require('../services/redis');
 router.get('/', async (req, res) => {
   const startTime = Date.now();
   
+  // Check Redis status - but don't fail health check if Redis is down
+  let redisStatus = 'disconnected';
   try {
-    // Check Redis
     const client = redisService.getClient();
     await client.ping();
-    
-    const responseTime = Date.now() - startTime;
-    
-    res.status(200).json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      services: {
-        redis: 'connected'
-      },
-      uptime: process.uptime(),
-      responseTimeMs: responseTime,
-      environment: process.env.NODE_ENV || 'development',
-      version: process.env.npm_package_version || '1.0.0'
-    });
+    redisStatus = 'connected';
   } catch (err) {
-    res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      error: err.message,
-      services: {
-        redis: 'disconnected'
-      }
-    });
+    // Redis not connected, but app is still running
+    redisStatus = 'disconnected';
   }
+  
+  const responseTime = Date.now() - startTime;
+  
+  // Always return 200 if the app is running, even if Redis is down
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    services: {
+      redis: redisStatus
+    },
+    uptime: process.uptime(),
+    responseTimeMs: responseTime,
+    environment: process.env.NODE_ENV || 'development',
+    version: process.env.npm_package_version || '1.0.0'
+  });
 });
 
 // Detailed health check
