@@ -89,4 +89,3 @@ This is a supportive friend, not a licensed therapist. It is not a replacement f
 ## License
 
 MIT
-
