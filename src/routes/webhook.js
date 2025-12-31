@@ -20,7 +20,8 @@ const validateSignature = (req, res, next) => {
       path: req.path 
     });
     // In production with secret configured, reject invalid signatures
-    if (process.env.NODE_ENV === 'production' && process.env.LOOPMESSAGE_WEBHOOK_SECRET) {
+    if (process.env.NODE_ENV === 'production' && process.env.12:51:04 info: Webhook received {"type":"text","messageId":"817eE106-f1C3-474E-B2DB-B4e59EC5274e","hasContent":true}
+12:51:04 warn: Invalid message data {"hasPhone":false,"hasMessage":true}LOOPMESSAGE_WEBHOOK_SECRET) {
       return res.status(401).json({ error: 'Invalid signature' });
     }
   }
@@ -41,6 +42,16 @@ router.use(express.json({
  */
 router.post('/message', validateSignature, asyncHandler(async (req, res) => {
   const startTime = Date.now();
+  const isTestMode = req.headers['x-test-mode'] === 'true';
+  
+  // Debug: Log raw webhook body
+  logger.info('DEBUG: Raw webhook payload', {
+    body: req.body,
+    headers: {
+      signature: req.headers['x-loopmessage-signature'],
+      contentType: req.headers['content-type']
+    }
+  });
   
   // Parse the webhook data
   const webhookData = loopMessage.parseWebhookData(req.body);
@@ -48,17 +59,43 @@ router.post('/message', validateSignature, asyncHandler(async (req, res) => {
   logger.info('Webhook received', {
     type: webhookData.type,
     messageId: webhookData.messageId,
-    hasContent: Boolean(webhookData.content)
+    hasContent: Boolean(webhookData.content),
+    phoneNumber: webhookData.phoneNumber,
+    testMode: isTestMode
   });
 
-  // Check for duplicate (idempotency)
-  if (webhookData.messageId) {
+  // Check for duplicate (idempotency) - skip in test mode
+  if (webhookData.messageId && !isTestMode) {
     const isDuplicate = await redisService.checkIdempotency(webhookData.messageId);
     if (isDuplicate) {
       logger.info('Duplicate webhook ignored', { messageId: webhookData.messageId });
       return res.status(200).json({ status: 'duplicate' });
     }
     await redisService.setIdempotency(webhookData.messageId);
+  }
+
+  // For test mode, process synchronously and return response
+  if (isTestMode) {
+    try {
+      const messageHandler = require('../handlers/messageHandler');
+      const result = await messageHandler.handleMessageWithResponse(webhookData);
+      
+      const processingTime = Date.now() - startTime;
+      return res.status(200).json({
+        success: true,
+        response: result.response,
+        emotion: result.emotion,
+        crisisDetected: result.crisisDetected,
+        onboardingStage: result.onboardingStage,
+        processingTimeMs: processingTime
+      });
+    } catch (error) {
+      logger.logError('Test message processing', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
   }
 
   // Respond quickly to webhook (async processing)

@@ -152,28 +152,47 @@ class LoopMessageService {
     // Normalize the webhook payload structure
     // LoopMessage sends different formats for different events
     
+    // Extract phone number from various possible fields
+    const phoneNumber = body.sender || 
+                        body.from || 
+                        body.phone || 
+                        body.recipient || 
+                        body.from_number ||
+                        body.contact ||
+                        body.number ||
+                        (body.message && body.message.from) ||
+                        (body.message && body.message.sender);
+    
+    // Extract message content from various possible fields
+    const content = body.text || 
+                    body.message || 
+                    body.content || 
+                    body.body ||
+                    (body.message && body.message.text) ||
+                    (body.message && body.message.content);
+    
     const normalized = {
       type: 'unknown',
-      messageId: body.id || body.message_id,
-      phoneNumber: body.sender || body.recipient || body.phone,
-      content: body.text || body.message || body.content,
-      timestamp: body.timestamp || Date.now(),
+      messageId: body.id || body.message_id || body.messageId || (body.message && body.message.id),
+      phoneNumber: phoneNumber,
+      content: content,
+      timestamp: body.timestamp || body.createdAt || Date.now(),
       raw: body
     };
 
     // Determine message type
-    if (body.reaction) {
+    if (body.reaction || (body.message && body.message.reaction)) {
       normalized.type = 'reaction';
-      normalized.reaction = body.reaction;
+      normalized.reaction = body.reaction || body.message.reaction;
       normalized.targetMessageId = body.target_message_id || body.message_id;
-    } else if (body.attachment_url || body.attachments?.length > 0) {
+    } else if (body.attachment_url || body.attachments?.length > 0 || (body.message && body.message.attachments)) {
       normalized.type = 'voice';
-      normalized.attachmentUrl = body.attachment_url || body.attachments?.[0]?.url;
-      normalized.attachmentType = body.attachment_type || body.attachments?.[0]?.type;
-    } else if (body.status) {
+      normalized.attachmentUrl = body.attachment_url || body.attachments?.[0]?.url || body.message?.attachments?.[0]?.url;
+      normalized.attachmentType = body.attachment_type || body.attachments?.[0]?.type || body.message?.attachments?.[0]?.type;
+    } else if (body.status || body.event === 'status') {
       normalized.type = 'status';
-      normalized.status = body.status;
-    } else if (body.text || body.message || body.content) {
+      normalized.status = body.status || body.delivery_status;
+    } else if (content) {
       normalized.type = 'text';
     }
 

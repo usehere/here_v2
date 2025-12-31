@@ -13,13 +13,28 @@ class MessageHandler {
    * Main message handling entry point
    */
   async handleMessage(webhookData) {
+    const result = await this._processMessage(webhookData, false);
+    // In normal mode, response is already sent
+  }
+
+  /**
+   * Handle message with response data (for testing)
+   */
+  async handleMessageWithResponse(webhookData) {
+    return await this._processMessage(webhookData, true);
+  }
+
+  /**
+   * Core message processing logic
+   */
+  async _processMessage(webhookData, returnResponse = false) {
     const startTime = Date.now();
     const phoneNumber = normalizePhoneNumber(webhookData.phoneNumber);
     const message = webhookData.content;
 
     if (!phoneNumber || !message) {
       logger.warn('Invalid message data', { hasPhone: Boolean(phoneNumber), hasMessage: Boolean(message) });
-      return;
+      return { response: null };
     }
 
     logger.logMessage('inbound', phoneNumber, message);
@@ -32,6 +47,9 @@ class MessageHandler {
       // Check for special commands first
       const commandResult = await this.handleCommands(phoneNumber, message, user);
       if (commandResult.handled) {
+        if (returnResponse) {
+          return { response: commandResult.response, isCommand: true };
+        }
         await this.sendResponse(phoneNumber, commandResult.response);
         return;
       }
@@ -39,15 +57,29 @@ class MessageHandler {
       // Check if this is a journal entry
       if (journaling.isJournalEntry(message)) {
         const result = await journaling.saveJournalEntry(phoneNumber, message);
+        if (returnResponse) {
+          return { response: result.acknowledgment, isJournal: true };
+        }
         await this.sendResponse(phoneNumber, result.acknowledgment);
         return;
       }
 
       // Handle new user welcome
       if (isNewUser) {
-        await this.sendResponse(phoneNumber, getWelcomeMessage());
+        const welcomeMsg = getWelcomeMessage();
+        if (!returnResponse) {
+          await this.sendResponse(phoneNumber, welcomeMsg);
+        }
         // Also generate a response to their first message
-        const response = await this.generateAndSendResponse(phoneNumber, message, user);
+        const response = await conversationEngine.generateResponse(phoneNumber, message);
+        if (returnResponse) {
+          return { 
+            response: welcomeMsg + '\n\n' + response, 
+            isNewUser: true,
+            onboardingStage: 'welcome'
+          };
+        }
+        await this.sendResponse(phoneNumber, response);
         return;
       }
 
@@ -57,6 +89,13 @@ class MessageHandler {
 
       if (crisisResult.isCrisis && crisisResult.riskLevel === 'critical') {
         // For critical crisis, send crisis response immediately
+        if (returnResponse) {
+          return { 
+            response: crisisResult.crisisResponse,
+            crisisDetected: true,
+            riskLevel: crisisResult.riskLevel
+          };
+        }
         await this.sendResponse(phoneNumber, crisisResult.crisisResponse);
         return;
       }
@@ -78,8 +117,6 @@ class MessageHandler {
         response = response + '\n\n' + onboardingResult.response;
       }
 
-      await this.sendResponse(phoneNumber, response);
-
       const processingTime = Date.now() - startTime;
       logger.info('Message handled', {
         phoneNumber: phoneNumber.slice(-4),
@@ -87,15 +124,31 @@ class MessageHandler {
         isCrisis: crisisResult.isCrisis
       });
 
+      if (returnResponse) {
+        return {
+          response,
+          emotion: user.profile?.currentEmotion,
+          crisisDetected: crisisResult.isCrisis,
+          riskLevel: crisisResult.riskLevel,
+          onboardingStage: user.onboardingStage
+        };
+      }
+
+      await this.sendResponse(phoneNumber, response);
+
     } catch (error) {
-      logger.logError('MessageHandler.handleMessage', error, {
+      logger.logError('MessageHandler._processMessage', error, {
         phoneNumber: phoneNumber.slice(-4)
       });
 
+      const fallbackResponse = "I'm having a moment - give me a sec and try again?";
+      
+      if (returnResponse) {
+        return { response: fallbackResponse, error: true };
+      }
+
       // Send fallback response
-      await this.sendResponse(phoneNumber, 
-        "I'm having a moment - give me a sec and try again?"
-      );
+      await this.sendResponse(phoneNumber, fallbackResponse);
     }
   }
 
