@@ -20,8 +20,7 @@ const validateSignature = (req, res, next) => {
       path: req.path 
     });
     // In production with secret configured, reject invalid signatures
-    if (process.env.NODE_ENV === 'production' && process.env.12:51:04 info: Webhook received {"type":"text","messageId":"817eE106-f1C3-474E-B2DB-B4e59EC5274e","hasContent":true}
-12:51:04 warn: Invalid message data {"hasPhone":false,"hasMessage":true}LOOPMESSAGE_WEBHOOK_SECRET) {
+    if (process.env.NODE_ENV === 'production' && process.env.LOOPMESSAGE_WEBHOOK_SECRET) {
       return res.status(401).json({ error: 'Invalid signature' });
     }
   }
